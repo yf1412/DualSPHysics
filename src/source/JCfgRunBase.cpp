@@ -20,7 +20,10 @@
 
 #include "JCfgRunBase.h"
 #include "JAppInfo.h"
+
+#ifdef JCfgRunBase_UseDSCfg
 #include "JDsphConfig.h"
+#endif
 
 using namespace std;
 
@@ -45,11 +48,13 @@ void JCfgRunBase::Reset(){
 /// Load configuration from DsphConfig.xml.
 //==============================================================================
 void JCfgRunBase::LoadDsphConfig(std::string path){
+#ifdef JCfgRunBase_UseDSCfg
   JDsphConfig dsphconfig;
   dsphconfig.Init(path);
   if(!dsphconfig.GetFileCfg().empty())printf("LoadDsphConfig> %s\n",fun::GetPathLevels(dsphconfig.GetFileCfg(),3).c_str());
   if(dsphconfig.GetCreateDirs()!=-1)CreateDirs=(dsphconfig.GetCreateDirs()==1);
   if(dsphconfig.GetCsvSeparator()!=-1)CsvSepComa=(dsphconfig.GetCsvSeparator()==1);
+#endif
 }
 
 //==============================================================================
@@ -124,10 +129,50 @@ void JCfgRunBase::LoadFile(std::string fname,int lv){
 //==============================================================================
 /// Generates error of unknown parameter.
 //==============================================================================
-void JCfgRunBase::ErrorParm(const std::string &opt,int optc,int lv,const std::string &file)const{
+void JCfgRunBase::ErrorParm(const std::string &opt,int optc,int lv
+  ,const std::string &file)const
+{
   std::string tx=fun::PrintStr("Parameter \"%s\" unrecognised or invalid. ",opt.c_str());
   tx=tx+fun::PrintStr("(Level cfg:%d, Parameter:%d)",lv,optc);
   Run_ExceptioonFile(tx,file);
+}
+
+//==============================================================================
+/// Generates error on parameter with indicated text.
+//==============================================================================
+void JCfgRunBase::ErrorParmText(const std::string &text,int optc,int lv
+  ,const std::string &file)const
+{
+  std::string tx=text+fun::PrintStr(" (Level cfg:%d, Parameter:%d)",lv,optc);
+  Run_ExceptioonFile(tx,file);
+}
+
+
+//==============================================================================
+/// Returns string of version info according parameters in veropt.
+//==============================================================================
+std::string JCfgRunBase::VerText(const std::string fullname,const std::string veropt){
+  string ret=fullname;
+  if(veropt.size()>4){
+    string fname=fullname;
+    //string vname,vver,vdate;
+    string vname=fun::StrSplit(" v",fname);
+    string vver =string("v")+fun::StrSplit(" (",fname);
+    string vdate=(fname.empty() || fname[fname.size()-1]!=')'? "???": fname.substr(0,fname.size()-1));
+    if(!vdate.empty() && vdate[0]=='v'){ //-Manage special cases: "DualSPHysics-XXXX vX.X (vX.X) (DD-MM-YYYY)"
+      string ver2=string("(")+fun::StrSplit(" (",fname);
+      vver=vver+ver2;
+      vdate=(fname.empty() || fname[fname.size()-1]!=')'? "???": fname.substr(0,fname.size()-1));
+    }
+    int s1=atoi(fun::StrSplitValue(":",veropt,1).c_str());
+    int s2=atoi(fun::StrSplitValue(":",veropt,2).c_str());
+    if(s1>0)vname=fun::StrFillEnd(vname," ",s1);
+    if(s2>0)vver =fun::StrFillEnd(vver ," ",s2);
+    //printf("[%s]->[%d,%d] [%s]---[%s]---[%s]\n",FullName.c_str(),s1,s2,vname.c_str(),vver.c_str(),vdate.c_str());
+    //printf("%s %s %s\n",vname.c_str(),vver.c_str(),vdate.c_str());
+    ret=vname+" "+vver+" "+vdate;
+  }
+  return(ret);
 }
 
 
@@ -234,20 +279,30 @@ void JCfgRunBase::LoadFloat6(std::string txopt,float def,tfloat3 &v1,tfloat3 &v2
 }
 
 //==============================================================================
+/// Load 1 value tdouble2 using command options.
+//==============================================================================
+void JCfgRunBase::LoadDouble2(std::string txopt,double def,tdouble2 &v1){
+  //printf("txopt=[%s]\n",txopt.c_str());
+  double values[2]={def,def};
+  string aux=txopt;
+  for(int tc=0;!aux.empty() && tc<2;tc++){
+    string txv=fun::StrSplit(":",aux);
+    if(!txv.empty())values[tc]=atof(txv.c_str());
+  }
+  v1=TDouble2(values[0],values[1]);
+}
+
+//==============================================================================
 /// Load 1 value tdouble3 using command options.
 //==============================================================================
 void JCfgRunBase::LoadDouble3(std::string txopt,double def,tdouble3 &v1){
   //printf("txopt=[%s]\n",txopt.c_str());
   double values[3]={def,def,def};
-  string ttx=txopt;
-  for(int tc=0;ttx!="" && tc<3;tc++){
-    int tpos=int(ttx.find(":"));
-    string ttxopt=(tpos>0? ttx.substr(0,tpos): ttx);
-    string ttxopt2;
-    if(tpos>0)ttxopt2=ttx.substr(tpos+1);
-    values[tc]=atof(ttxopt.c_str());
-    ttx=ttxopt2;
-  } 
+  string aux=txopt;
+  for(int tc=0;!aux.empty() && tc<3;tc++){
+    string txv=fun::StrSplit(":",aux);
+    if(!txv.empty())values[tc]=atof(txv.c_str());
+  }
   v1=TDouble3(values[0],values[1],values[2]);
 }
 
@@ -257,15 +312,11 @@ void JCfgRunBase::LoadDouble3(std::string txopt,double def,tdouble3 &v1){
 void JCfgRunBase::LoadDouble6(std::string txopt,double def,tdouble3 &v1,tdouble3 &v2){
   //printf("txopt=[%s]\n",txopt.c_str());
   double values[6]={def,def,def,def,def,def};
-  string ttx=txopt;
-  for(int tc=0;ttx!="" && tc<6;tc++){
-    int tpos=int(ttx.find(":"));
-    string ttxopt=(tpos>0? ttx.substr(0,tpos): ttx);
-    string ttxopt2;
-    if(tpos>0)ttxopt2=ttx.substr(tpos+1);
-    values[tc]=atof(ttxopt.c_str());
-    ttx=ttxopt2;
-  } 
+  string aux=txopt;
+  for(int tc=0;!aux.empty() && tc<6;tc++){
+    string txv=fun::StrSplit(":",aux);
+    if(!txv.empty())values[tc]=atof(txv.c_str());
+  }
   v1=TDouble3(values[0],values[1],values[2]);
   v2=TDouble3(values[3],values[4],values[5]);
 }
@@ -298,4 +349,7 @@ void JCfgRunBase::SplitsOpts(const std::string &opt,std::string &txword,std::str
   if(pos>=0)txopt4=tx.substr(pos+1);
 }
 
+//==============================================================================
+/// Splits options in txoptfull, txopt, txopt2, txopt3 and txopt4.
+//==============================================================================
 

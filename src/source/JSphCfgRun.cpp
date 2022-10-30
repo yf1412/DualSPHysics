@@ -41,6 +41,7 @@ void JSphCfgRun::Reset(){
   Gpu=false; GpuId=-1; GpuFree=false;
   Stable=false;
   SvPosDouble=-1;
+  SvExtraParts="undefined";
   OmpThreads=0;
   SvTimers=true;
   CellDomFixed=false;
@@ -59,11 +60,13 @@ void JSphCfgRun::Reset(){
   Sv_Vtk=false; Sv_Csv=false;
   CaseName=""; RunName=""; DirOut=""; DirDataOut=""; 
   PartBegin=0; PartBeginFirst=0; PartBeginDir="";
+  RestartChrono=false;
   TimeMax=-1; TimePart=-1;
   RhopOutModif=false; RhopOutMin=700; RhopOutMax=1300;
   FtPause=-1;
   NstepsBreak=0;
   SvAllSteps=false;
+  NoRtimes=true;
   PipsMode=0; PipsSteps=100;
   CreateDirs=true;
   CsvSepComa=false;
@@ -87,9 +90,12 @@ void JSphCfgRun::VisuInfo()const{
   printf("  Execution options:\n");
   printf("    -cpu        Execution on CPU (option by default)\n");
   printf("    -gpu[:id]   Execution on GPU and id of the device\n");
+  printf("    -mgpu[:id1_id2_id3...]   Execution on Multi-GPUs and ids of the devices\n");
   printf("\n");
   printf("    -stable     The result is always the same but the execution is slower\n");
   printf("    -saveposdouble:<0/1>  Saves position using double precision (default=0)\n");
+  printf("    -svextraparts:<int>  PART interval for saving extra data (default=0)\n");
+  printf("    -svextraparts:<list> List of PARTs for saving extra data (default=0)\n");
   printf("\n");
 #ifdef OMP_USE
   printf("    -ompthreads:<int>  Only for CPU execution, indicates the number of threads\n");
@@ -109,8 +115,11 @@ void JSphCfgRun::VisuInfo()const{
   printf("    -mdbc_noslip   Modified Dynamic Boundary Condition mDBC (mode: no-slip)\n");
   printf("    -mdbc_freeslip Modified Dynamic Boundary Condition mDBC (mode: free-slip)\n");
 /////////|---------1---------2---------3---------4---------5---------6---------7--------X8
-  printf("    -mdbc_fast:<0/1>       Fast single precision calculation on GPU (default=1)\n");
+  printf("    -mdbc_fast:<0/1>        Fast single precision calculation on GPU (default=1)\n");
   printf("    -mdbc_threshold:<float> Kernel support limit to apply mDBC correction [0-1]\n");
+  printf("\n");
+  printf("    -initnorpla:<inlinecfg>  Initialize definition for <boundnormal_plane>\n");
+  printf("    -initnorpart:<inlinecfg> Initialize definition for <boundnormal_parts>\n");
   printf("\n");
   printf("    -symplectic      Symplectic algorithm as time step algorithm\n");
   printf("    -verlet[:steps]  Verlet algorithm as time step algorithm and number of\n");
@@ -148,7 +157,8 @@ void JSphCfgRun::VisuInfo()const{
   printf("    -partbegin:begin[:first] dir \n");
   printf("     Specifies the beginning of the simulation starting from a given PART\n");
   printf("     (begin) and located in the directory (dir), (first) indicates the\n");
-  printf("     number of the first PART to be generated\n\n");
+  printf("     number of the first PART to be generated\n");
+  printf("    -restartchrono:<0/1>    Allows restart with Chrono active (default=0)\n");
   printf("\n");
   printf("    -tmax:<float>   Maximum time of simulation\n");
   printf("    -tout:<float>   Time between output files\n");
@@ -180,8 +190,9 @@ void JSphCfgRun::VisuInfo()const{
   printf("\n");
 
   printf("  Debug options:\n");
-  printf("    -nsteps:<uint>  Maximum number of steps allowed (debug)\n");
-  printf("    -svsteps:<0/1>  Saves a PART for each step (debug)\n");
+  printf("    -nsteps:<uint>  Maximum number of steps allowed (activates nortimes)\n");
+  printf("    -svsteps:<0/1>  Saves a PART for each step (activates nortimes)\n");
+  printf("    -nortimes:<0/1> Removes execution dependent values from bi4 files\n");
   printf("\n");
 
   printf("  Examples:\n");
@@ -243,9 +254,10 @@ void JSphCfgRun::VisuConfig()const{
 /// Loads execution parameters.
 //==============================================================================
 void JSphCfgRun::LoadOpts(string *optlis,int optn,int lv,const std::string &file){
-  if(lv>=10)Run_Exceptioon("No more than 10 levels of recursive configuration.");
+  if(lv>=10)Run_Exceptioon("No more than 10 levels of recursive configuration."); //只能10层命令设置
   for(int c=0;c<optn;c++){
-    string opt=optlis[c];
+      //定义
+    const string opt=optlis[c];
     if(opt[0]!='-' && opt[0]!='#'){
       if(!DirsDef){ CaseName=opt; DirsDef++; }
       else if(DirsDef==1){ DirOut=opt; DirsDef++; }
@@ -256,15 +268,34 @@ void JSphCfgRun::LoadOpts(string *optlis,int optn,int lv,const std::string &file
       string txword,txoptfull,txopt1,txopt2;
       SplitsOpts(opt,txword,txoptfull,txopt1,txopt2);
       //-Checks keywords in commands.
-      if(txword=="CPU"){ Cpu=true; Gpu=false; }
+      //命令识别，增加MGpu判断和读取,2022-10-30
+      if (txword == "CPU") { Cpu = true; Gpu = false; MGpu = false;}
       else if(txword=="GPU"){ Gpu=true; Cpu=false;
-        if(txoptfull!="")GpuId=atoi(txoptfull.c_str()); 
+        if(txoptfull!="")GpuId=atoi(txoptfull.c_str()); MGpu = false;
       }
+      //当命令识别出MGpu为真，如存在，则取序列编号至MultiGpuIdList，否则直接调用全部显卡 2022-10-30
+      else if (txword == "MGPU") {
+          Gpu = true; Cpu = false; MGpu = true;
+          if (txoptfull != "") {
+              MultiGpuIdStr = txoptfull.c_str();
+              stringstream text_stream(MultiGpuIdStr);
+              string tempitem;
+              while (std::getline(text_stream, tempitem, '_')) {
+                  MultiGpuIdList.push_back(stoi(tempitem));
+              }
+              //for (auto& n : MultiGpuIdList) {
+              //    cout << n << endl;
+              //}
+              //cout << MultiGpuIdStr;
+          }
+      }
+      //
       else if(txword=="STABLE")Stable=(txoptfull!=""? atoi(txoptfull.c_str()): 1)!=0;
       else if(txword=="SAVEPOSDOUBLE"){
         const int v=(txoptfull!=""? atoi(txoptfull.c_str()): 1);
         SvPosDouble=(!v? 0: 1);
       }
+      else if(txword=="SVEXTRAPARTS")SvExtraParts=txoptfull;
 #ifdef OMP_USE
       else if(txword=="OMPTHREADS"){ 
         OmpThreads=atoi(txoptfull.c_str()); if(OmpThreads<0)OmpThreads=0;
@@ -291,6 +322,10 @@ void JSphCfgRun::LoadOpts(string *optlis,int optn,int lv,const std::string &file
         MdbcThreshold=float(atof(txoptfull.c_str())); 
         if(MdbcThreshold<0 || MdbcThreshold>1.f)ErrorParm(opt,c,lv,file);
       }
+      else if(txword=="INITNORPLA"){
+        InitParms.push_back(opt); //if(TBoundary==1){ TBoundary=2; SlipMode=1; }//-Activates mDBC.
+      }
+      else if(txword=="INITNORPART"){ InitParms.push_back(opt); }
       else if(txword=="SYMPLECTIC")TStep=STEP_Symplectic;
       else if(txword=="VERLET"){ TStep=STEP_Verlet; 
         if(txoptfull!="")VerletSteps=atoi(txoptfull.c_str()); 
@@ -358,6 +393,7 @@ void JSphCfgRun::LoadOpts(string *optlis,int optn,int lv,const std::string &file
         }
         PartBeginDir=optlis[c+1]; c++; 
       }
+      else if(txword=="RESTARTCHRONO")RestartChrono=(txoptfull!=""? atoi(txoptfull.c_str()): 1)!=0;
       else if(txword=="RHOPOUT"){ 
         RhopOutMin=float(atof(txopt1.c_str())); 
         RhopOutMax=float(atof(txopt2.c_str())); 
@@ -379,8 +415,15 @@ void JSphCfgRun::LoadOpts(string *optlis,int optn,int lv,const std::string &file
         LoadDouble6(txoptfull,0,DomainFixedMin,DomainFixedMax);
         DomainMode=2;
       }
-      else if(txword=="NSTEPS")NstepsBreak=atoi(txoptfull.c_str()); 
-      else if(txword=="SVSTEPS")SvAllSteps=(txoptfull!=""? atoi(txoptfull.c_str()): 1)!=0;
+      else if(txword=="NSTEPS"){
+        NstepsBreak=atoi(txoptfull.c_str()); 
+        if(NstepsBreak)NoRtimes=true;
+      }
+      else if(txword=="SVSTEPS"){
+        SvAllSteps=(txoptfull!=""? atoi(txoptfull.c_str()): 1)!=0;
+        if(SvAllSteps)NoRtimes=true;
+      }
+      else if(txword=="NORTIMES")NoRtimes=(txoptfull!=""? atoi(txoptfull.c_str()): 1)!=0;
       else if(txword=="SVPIPS"){
         PipsMode=(unsigned)atoi(txopt1.c_str());
         if(PipsMode>2)ErrorParm(opt,c,lv,file);

@@ -4,7 +4,7 @@
  Prof. Moncho Gomez Gesteira, Prof. Benedict Rogers, 
  Dr Georgios Fourtakas, Prof. Peter Stansby, 
  Dr Renato Vacondio, Dr Corrado Altomare, Dr Angelo Tafuni, 
- Orlando Garcia Feal, Ivan Martinez Estevez
+ Dr Orlando Garcia Feal, Ivan Martinez Estevez
 
  EPHYSLAB Environmental Physics Laboratory, Universidade de Vigo, Ourense, Spain.
  School of Mechanical, Aerospace and Civil Engineering, University of Manchester, Manchester, U.K.
@@ -31,8 +31,8 @@ School of Mechanical, Aerospace and Civil Engineering, University of Manchester,
 \section compile_sec Project files
 Please download source files and documentation from <a href="http://dual.sphysics.org">DualSPHysics website.</a> \n
 \author <a href="http://dual.sphysics.org/index.php/developers">DualSPHysics Developers.</a> 
-\version 5.0.175
-\date 21-02-2021
+\version 5.0.233
+\date 08-05-2022
 \copyright GNU Lesser General Public License <a href="http://www.gnu.org/licenses/">GNU licenses.</a>
 */
 
@@ -51,12 +51,16 @@ Please download source files and documentation from <a href="http://dual.sphysic
 #ifdef _WITHGPU
   #include "JSphGpuSingle.h"
 #endif
+//加载多GPU头文件JSphGpuMulti.h,编译后取消注释2022-10-30
+//#ifdef _WITHMGPU
+//    #include "JSphGpuMulti.h"
+//#endif
 
 #pragma warning(disable : 4996) //Cancels sprintf() deprecated.
 
 using namespace std;
 
-JAppInfo AppInfo("DualSPHysics5","v5.0.175","21-02-2021");
+JAppInfo AppInfo("DualSPHysics5","v5.0.233","08-05-2022");  //声明程序信息AppInfo为JAppInfo类
 //JAppInfo AppInfo("DualSPHysics5","v5.0.???","UserVersion","v1.0","??-??-????"); //-for user versions.
 
 //==============================================================================
@@ -69,7 +73,7 @@ std::string getlicense_lgpl(const std::string &name,bool simple){
   tx=tx+"\n Prof. Moncho Gomez Gesteira, Prof. Benedict Rogers,";
   tx=tx+"\n Dr Georgios Fourtakas, Prof. Peter Stansby,";
   tx=tx+"\n Dr Renato Vacondio, Dr Corrado Altomare, Dr Angelo Tafuni,";
-  tx=tx+"\n Orlando Garcia Feal, Ivan Martinez Estevez\n";
+  tx=tx+"\n Dr Orlando Garcia Feal, Ivan Martinez Estevez\n";
   if(!simple){
     tx=tx+"\n EPHYSLAB Environmental Physics Laboratory, Universidade de Vigo";
     tx=tx+"\n School of Mechanical, Aerospace and Civil Engineering, University of Manchester\n";
@@ -93,9 +97,10 @@ std::string getlicense_lgpl(const std::string &name,bool simple){
 bool ShowsVersionInfo(int argc,char** argv){
   const string option=fun::StrLower(argc==2? argv[1]: "");
   bool finish=true;
-  if(option=="-ver"){
-    printf("%s\n",AppInfo.GetFullName().c_str());
-    printf("%s",getlicense_lgpl(AppInfo.GetShortName(),true).c_str());
+  if(fun::StrRemoveAfter(option,":")=="-ver"){
+    const string vtex=JCfgRunBase::VerText(AppInfo.GetFullName(),option); //JCfgRunBase:计算设置数据加载用类 vtex
+    printf("%s\n",vtex.c_str());
+    if(vtex==AppInfo.GetFullName())printf("%s",getlicense_lgpl(AppInfo.GetShortName(),true).c_str());
   }
   else if(option=="-info"){
     //-Defines the features included in the program.
@@ -137,25 +142,26 @@ void PrintExceptionLog(const std::string &prefix,const std::string &text,JLog2 *
 //==============================================================================
 int main(int argc, char** argv){
   int errcode=1;
+
   //AppInfo.AddNameExtra("Symmetry");    //<vs_syymmetry>
   //AppInfo.AddNameExtra("SaveFtAce");
   //AppInfo.AddNameExtra("SaveFtMotion");//<vs_ftmottionsv>
-#ifdef CODE_SIZE4
-  AppInfo.AddNameExtra("MK65k");
-#endif
+  #ifdef CODE_SIZE4
+    AppInfo.AddNameExtra("MK65k");
+  #endif
+
   AppInfo.ConfigRunPaths(argv[0]);
   if(ShowsVersionInfo(argc,argv))return(errcode);
   std::string license=getlicense_lgpl(AppInfo.GetShortName(),false);
   printf("%s",license.c_str());
   std::string appname=AppInfo.GetFullName();
-  std::string appnamesub;
-  for(unsigned c=0;c<=unsigned(appname.size());c++)appnamesub=appnamesub+"=";
+  std::string appnamesub=fun::StrFillEnd("","=",unsigned(appname.size())+1);
   printf("\n%s\n%s\n",appname.c_str(),appnamesub.c_str());
-  JLog2 *log=NULL;
-  JSphCfgRun cfg;
+  JLog2 *log=NULL; //声明日志文件log为JLog2类
+  JSphCfgRun cfg; //声明运行设置文件cfg为JSphCfgRun类
   try{
     cfg.LoadArgv(argc,argv);
-    //cfg.VisuConfig();
+    //cfg.VisuConfig(); //运行设置确认的参数显示
     if(!cfg.PrintInfo){
       AppInfo.ConfigOutput(cfg.CreateDirs,cfg.CsvSepComa,cfg.DirOut,cfg.DirDataOut);
       AppInfo.LogInit(AppInfo.GetDirOut()+"/Run.out");
@@ -172,12 +178,22 @@ int main(int argc, char** argv){
         JSphCpuSingle sph;
         sph.Run(appname,&cfg,log);
       }
+
+
       #ifdef _WITHGPU
-      else{
+      else if(cfg.Gpu){
         JSphGpuSingle sph;
         sph.Run(appname,&cfg,log);
       }
       #endif
+      //开启多GPU编译入口，需编写JSphGpuMulti,编写后取消注释2022-10-30
+
+      //#ifdef _WITHMGPU
+      //else { 
+      //    JSphGpuMulti sph;
+      //    sph.Run(appname, &cfg.log);
+      //}
+      //#endif
     }
     errcode=0;
   }

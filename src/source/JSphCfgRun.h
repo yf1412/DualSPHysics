@@ -23,6 +23,10 @@
 
 #include "JCfgRunBase.h"
 #include "DualSphDef.h"
+#include <vector>
+using std::vector;
+using std::stringstream;
+using std::stoi;
 
 //##############################################################################
 //# JSphCfgRun
@@ -37,10 +41,14 @@ protected:
 public:
   bool Cpu;
   bool Gpu;
+  bool MGpu; //多GPU并行指令判断
   int GpuId;
+  std::vector<int> MultiGpuIdList; //多GPU运行gpuID编号数组，动态，默认指向第一个GPU即GpuId=0
+  std::string MultiGpuIdStr; //多GPU显卡编号临时存储字符串
   bool GpuFree;
   bool Stable;
   int SvPosDouble;  ///<Saves particle position using double precision (default=0)
+  std::string SvExtraParts;   ///<Part interval (or list) for saving extra data for restart option (default=empty=disabled)
 
   int OmpThreads;
 
@@ -50,6 +58,8 @@ public:
   int SlipMode;         ///<Slip mode for mDBC: 0:None, 1:DBC vel=0, 2:No-slip, 3:Free slip (default=1).
   int MdbcFastSingle;   ///<Matrix calculations are done in single precision (default=1). 
   float MdbcThreshold;  ///<Kernel support limit to apply mDBC correction (default=0).
+  std::vector<std::string> InitParms;
+
   TpStep TStep;
   int VerletSteps;
   TpKernel TKernel;
@@ -65,6 +75,7 @@ public:
   std::string CaseName,RunName,DirOut,DirDataOut;
   std::string PartBeginDir;
   unsigned PartBegin,PartBeginFirst;
+  bool RestartChrono;             ///<Allows restart with Chrono active (default=0).
   float FtPause;
   bool RhopOutModif;              ///<Indicates whether \ref RhopOutMin or RhopOutMax is changed.
   float RhopOutMin,RhopOutMax;    ///<Limits for \ref RhopOut density correction.
@@ -74,6 +85,7 @@ public:
 
   int NstepsBreak;  ///<Maximum number of steps allowed (debug).
   bool SvAllSteps;  ///<Saves a PART for each step (debug).
+  bool NoRtimes;    ///<Removes execution dependent values from bi4 files (debug).
 
   unsigned PipsMode;   ///<Defines mode of PIPS calculation (0:No computed (default), 1:Computed, 2:computed and save detail).
   unsigned PipsSteps;  ///<Number of steps per interval to compute PIPS (100 by default).
